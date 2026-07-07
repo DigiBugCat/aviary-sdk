@@ -6,7 +6,7 @@
 
 [project]
 name = "aviary-sdk"
-version = "0.2.0"
+version = "0.3.0"
 description = "Aviary bird runtime: crop store + /birdz + /mcp + /acc faces, and oneshot() — OpenAI-Response-shaped GPT calls on the codex ChatGPT sub"
 requires-python = ">=3.11"
 dependencies = []

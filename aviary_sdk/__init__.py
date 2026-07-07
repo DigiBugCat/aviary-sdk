@@ -15,3 +15,4 @@ __version__ = "0.1.1"
 
 from .oneshot import MODELS, OneshotError, oneshot, oneshot_async  # noqa: E402,F401
 from ._response import Response, ResponseUsage  # noqa: E402,F401
+from .openai import AsyncOpenAI, OpenAI  # noqa: E402,F401

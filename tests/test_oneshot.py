@@ -31,3 +31,14 @@ def test_response_empty_is_falsy():
 def test_models_constant():
     assert MODELS[0] == "gpt-5.3-codex-spark"                # fastest first
     assert "gpt-5.5" in MODELS
+
+
+def test_openai_client_surface():
+    """The OpenAI-shaped client exposes .responses.create without a live call."""
+    from aviary_sdk.openai import OpenAI, AsyncOpenAI
+    c = OpenAI(model="gpt-5.4")
+    assert c.responses._model == "gpt-5.4"           # default model set
+    assert hasattr(c.responses, "create")
+    assert hasattr(OpenAI, "models_available")
+    ac = AsyncOpenAI()
+    assert ac.responses._model == "gpt-5.3-codex-spark"   # default
