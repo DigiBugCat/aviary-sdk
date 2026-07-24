@@ -1,6 +1,78 @@
 """Deterministic tests for the oneshot Response shim (no live API calls)."""
+import pytest
+
+import importlib
+
 from aviary_sdk._response import build_response
-from aviary_sdk.oneshot import MODELS
+
+oneshot_mod = importlib.import_module("aviary_sdk.oneshot")
+
+MODELS = oneshot_mod.MODELS
+OneshotError = oneshot_mod.OneshotError
+_parse_stream = oneshot_mod._parse_stream
+_Transient = oneshot_mod._Transient
+oneshot = oneshot_mod.oneshot
+
+
+def _sse(*lines):
+    """Encode strings as the raw byte lines an SSE response iterates over."""
+    return [ln.encode() for ln in lines]
+
+
+def test_parse_stream_accumulates_deltas():
+    text, completed = _parse_stream(_sse(
+        'data: {"type": "response.output_text.delta", "delta": "hel"}',
+        'data: {"type": "response.output_text.delta", "delta": "lo"}',
+        'data: {"type": "response.completed", "response": {"id": "r1"}}',
+        "data: [DONE]",
+    ))
+    assert text == "hello"
+    assert completed == {"type": "response.completed", "response": {"id": "r1"}}
+
+
+def test_parse_stream_stops_at_done():
+    # A delta after [DONE] must not be consumed.
+    text, _ = _parse_stream(_sse(
+        'data: {"type": "response.output_text.delta", "delta": "kept"}',
+        "data: [DONE]",
+        'data: {"type": "response.output_text.delta", "delta": "dropped"}',
+    ))
+    assert text == "kept"
+
+
+def test_parse_stream_skips_noise_and_bad_json():
+    # Non-data lines, blanks, and unparseable data payloads are skipped.
+    text, completed = _parse_stream(_sse(
+        "",
+        ": keepalive comment",
+        "event: ping",
+        "data: {not valid json",
+        'data: {"type": "response.output_text.delta", "delta": "ok"}',
+    ))
+    assert text == "ok"
+    assert completed is None
+
+
+def test_oneshot_transient_exhausts_into_oneshot_error(monkeypatch):
+    calls = []
+
+    def boom(payload, timeout):
+        calls.append(1)
+        raise _Transient("503: down")
+
+    import time as _time
+
+    monkeypatch.setattr(oneshot_mod, "_post", boom)
+    monkeypatch.setattr(_time, "sleep", lambda *_: None)
+    with pytest.raises(OneshotError):
+        oneshot("hi", retries=2)
+    assert len(calls) == 3  # initial + 2 retries
+
+
+def test_oneshot_returns_response_on_success(monkeypatch):
+    monkeypatch.setattr(oneshot_mod, "_post", lambda p, t: ("hi there", None))
+    r = oneshot("greet", retries=0)
+    assert r.output_text == "hi there"
 
 
 def test_response_output_text_and_tree():
