@@ -64,6 +64,32 @@ def _refresh() -> None:
     tmp.rename(_auth_path())
 
 
+def _parse_stream(raw_lines):
+    """SSE parse: (text, completed_event) from an iterable of raw byte lines.
+
+    Accumulates response.output_text.delta, stops at [DONE], keeps the
+    response.completed event, and skips non-data / unparseable lines. Pure —
+    no I/O — so the load-bearing wire-parse is testable without a live call."""
+    out, completed = [], None
+    for raw in raw_lines:
+        line = raw.decode().strip()
+        if not line.startswith("data:"):
+            continue
+        p = line[5:].strip()
+        if p == "[DONE]":
+            break
+        try:
+            ev = json.loads(p)
+        except json.JSONDecodeError:
+            continue
+        et = ev.get("type")
+        if et == "response.output_text.delta":
+            out.append(ev["delta"])
+        elif et == "response.completed":
+            completed = ev
+    return "".join(out).strip(), completed
+
+
 def _post(payload: dict, timeout: float, _auth_retried: bool = False):
     """→ (text, completed_event). Refreshes on 401, flags transient 5xx/429."""
     tok = json.loads(_auth_path().read_text())["tokens"]
@@ -85,24 +111,7 @@ def _post(payload: dict, timeout: float, _auth_retried: bool = False):
         if e.code in (429, 500, 502, 503, 529):       # transient → signal retry
             raise _Transient(f"{e.code}: {detail}")
         raise OneshotError(f"oneshot {e.code}: {detail}")   # 400/403 → caller's bug
-    out, completed = [], None
-    for raw in resp:
-        line = raw.decode().strip()
-        if not line.startswith("data:"):
-            continue
-        p = line[5:].strip()
-        if p == "[DONE]":
-            break
-        try:
-            ev = json.loads(p)
-        except json.JSONDecodeError:
-            continue
-        et = ev.get("type")
-        if et == "response.output_text.delta":
-            out.append(ev["delta"])
-        elif et == "response.completed":
-            completed = ev
-    return "".join(out).strip(), completed
+    return _parse_stream(resp)
 
 
 class _Transient(Exception):
